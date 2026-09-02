@@ -1,0 +1,11 @@
+# Python 3.10+ recomendado (probado con 3.13)
+torch>=2.2.0
+torchaudio>=2.2.0
+transformers>=4.36.0
+matplotlib>=3.8.0
+customtkinter>=6.0.0
+sounddevice>=0.4.6
+soundfile>=0.12.0
+numpy>=1.26.0
+safetensors>=0.4.0
+huggingface_hub>=0.20.0
