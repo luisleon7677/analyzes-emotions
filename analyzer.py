@@ -2,13 +2,19 @@
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Callable
 
+# El modelo ya está en la caché local: no consultar el Hub ni pedir token.
+os.environ["HF_HUB_OFFLINE"] = "1"
+os.environ["TRANSFORMERS_OFFLINE"] = "1"
+
+import soundfile as sf
 import torch
 import torch.nn.functional as F
 import torchaudio
-from huggingface_hub import hf_hub_download
 from safetensors.torch import load_file
 from transformers import AutoConfig, AutoFeatureExtractor
 
@@ -50,19 +56,62 @@ class ChunkResult:
     scores: dict[str, float]
 
 
+def read_waveform(path: str) -> tuple[torch.Tensor, int]:
+    """Lee el audio con soundfile. torchaudio.load exige TorchCodec."""
+    data, sample_rate = sf.read(path, dtype="float32", always_2d=True)
+    waveform = torch.from_numpy(data.T.copy())
+    return waveform, int(sample_rate)
+
+
+def local_model_dir() -> Path:
+    """Carpeta del modelo ya descargado en la caché de Hugging Face."""
+    cache = (
+        Path.home()
+        / ".cache"
+        / "huggingface"
+        / "hub"
+        / "models--UMUTeam--w2v-bert-emotion-es"
+    )
+    ref_file = cache / "refs" / "main"
+    if not ref_file.is_file():
+        raise FileNotFoundError(
+            "No está el modelo local "
+            f"{MODEL_ID}. Se esperaba en {cache}"
+        )
+    snapshot = cache / "snapshots" / ref_file.read_text(encoding="utf-8").strip()
+    if not (snapshot / "model.safetensors").is_file():
+        raise FileNotFoundError(f"Faltan los pesos del modelo en {snapshot}")
+    return snapshot
+
+
 class EmotionAnalyzer:
     def __init__(self) -> None:
+        print("[carga] EmotionAnalyzer: inicio", flush=True)
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.feature_extractor = AutoFeatureExtractor.from_pretrained(MODEL_ID)
-        config = AutoConfig.from_pretrained(MODEL_ID)
+        print(f"[carga] dispositivo: {self.device}", flush=True)
+        model_dir = local_model_dir()
+        print(f"[carga] carpeta local: {model_dir}", flush=True)
+        self.feature_extractor = AutoFeatureExtractor.from_pretrained(
+            model_dir, local_files_only=True
+        )
+        print("[carga] feature extractor listo", flush=True)
+        config = AutoConfig.from_pretrained(model_dir, local_files_only=True)
+        print("[carga] config lista", flush=True)
         self.model = CustomAudioClassification(config)
-        weights_path = hf_hub_download(MODEL_ID, "model.safetensors")
-        state = load_file(weights_path, device=str(self.device))
+        print("[carga] arquitectura creada", flush=True)
+        state = load_file(model_dir / "model.safetensors", device=str(self.device))
+        print(f"[carga] pesos leídos: {len(state)} tensores", flush=True)
         missing, unexpected = self.model.load_state_dict(state, strict=False)
         if missing:
+            print(f"[carga] faltan pesos: {missing}", flush=True)
             raise RuntimeError(f"Faltan pesos del modelo: {missing}")
+        print(
+            f"[carga] state_dict aplicado (inesperados: {len(unexpected)})",
+            flush=True,
+        )
         self.model.to(self.device)
         self.model.eval()
+        print("[carga] modelo en eval", flush=True)
         self.id2label = {
             int(k): v.lower() for k, v in self.model.config.id2label.items()
         }
@@ -70,7 +119,7 @@ class EmotionAnalyzer:
         _ = unexpected
 
     def load_audio(self, path: str) -> tuple[torch.Tensor, int]:
-        waveform, sample_rate = torchaudio.load(path)
+        waveform, sample_rate = read_waveform(path)
 
         if sample_rate != TARGET_SR:
             waveform = torchaudio.transforms.Resample(sample_rate, TARGET_SR)(waveform)

@@ -11,12 +11,11 @@ from tkinter import filedialog, messagebox
 import customtkinter as ctk
 import numpy as np
 import sounddevice as sd
-import torchaudio
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
 from matplotlib.lines import Line2D
 
-from analyzer import DEFAULT_CHUNK_SECONDS, EmotionAnalyzer
+from analyzer import DEFAULT_CHUNK_SECONDS, EmotionAnalyzer, read_waveform
 
 BG = "#1e1e1e"
 PANEL = "#2a2a2a"
@@ -67,8 +66,8 @@ class EmotionApp(ctk.CTk):
     def __init__(self) -> None:
         super().__init__()
         self.title("Análisis emocional de audio")
-        self.geometry("1000x780")
-        self.minsize(860, 660)
+        self.geometry("1000x900")
+        self.minsize(860, 760)
         ctk.set_appearance_mode("dark")
         ctk.set_default_color_theme("blue")
         self.configure(fg_color=BG)
@@ -222,6 +221,48 @@ class EmotionApp(ctk.CTk):
         )
         self.summary_label.pack(side="right")
 
+        score = ctk.CTkFrame(self, fg_color=PANEL, corner_radius=12)
+        score.pack(fill="x", padx=24, pady=(0, 8))
+
+        score_head = ctk.CTkFrame(score, fg_color="transparent")
+        score_head.pack(fill="x", padx=16, pady=(12, 4))
+
+        ctk.CTkLabel(
+            score_head,
+            text="Resultado de la llamada",
+            font=ctk.CTkFont(family="Segoe UI", size=14, weight="bold"),
+            text_color=TEXT,
+        ).pack(side="left")
+
+        self.final_score_label = ctk.CTkLabel(
+            score_head,
+            text="Sin análisis",
+            font=ctk.CTkFont(family="Segoe UI", size=13),
+            text_color=MUTED,
+        )
+        self.final_score_label.pack(side="right")
+
+        shares = ctk.CTkFrame(score, fg_color="transparent")
+        shares.pack(fill="x", padx=12, pady=(4, 12))
+        self._share_labels: dict[str, ctk.CTkLabel] = {}
+        for label, key in EMOTION_LEGEND:
+            cell = ctk.CTkFrame(shares, fg_color="transparent")
+            cell.pack(side="left", fill="x", expand=True, padx=4)
+            ctk.CTkLabel(
+                cell,
+                text=label,
+                font=ctk.CTkFont(family="Segoe UI", size=11),
+                text_color=EMOTION_COLORS[key],
+            ).pack(anchor="w")
+            value = ctk.CTkLabel(
+                cell,
+                text="—",
+                font=ctk.CTkFont(family="Segoe UI", size=18, weight="bold"),
+                text_color=TEXT,
+            )
+            value.pack(anchor="w")
+            self._share_labels[key] = value
+
         self.emotion_now_label = ctk.CTkLabel(
             self,
             text="",
@@ -350,12 +391,17 @@ class EmotionApp(ctk.CTk):
         return self._seek_pos
 
     def _load_model_async(self) -> None:
+        print("[ui] inicio de carga del modelo", flush=True)
+
         def work() -> None:
             try:
                 analyzer = EmotionAnalyzer()
+                print("[ui] modelo construido, avisando a la ventana", flush=True)
                 self.after(0, lambda: self._on_model_ready(analyzer))
             except Exception as exc:  # noqa: BLE001
-                self.after(0, lambda: self._on_model_error(str(exc)))
+                message = str(exc)
+                print(f"[ui] fallo al cargar el modelo: {message}", flush=True)
+                self.after(0, lambda: self._on_model_error(message))
 
         threading.Thread(target=work, daemon=True).start()
 
@@ -364,8 +410,12 @@ class EmotionApp(ctk.CTk):
         self.status_label.configure(text="Modelo listo. Selecciona un audio.")
         if self.audio_path:
             self.process_btn.configure(state="normal")
+            print("[ui] modelo listo y Procesar activado", flush=True)
+        else:
+            print("[ui] modelo listo; Procesar sigue desactivado (no hay audio)", flush=True)
 
     def _on_model_error(self, message: str) -> None:
+        print(f"[ui] alerta de error del modelo: {message}", flush=True)
         self.status_label.configure(text=f"Error al cargar el modelo: {message}")
         messagebox.showerror("Error", f"No se pudo cargar el modelo:\n{message}")
 
@@ -378,18 +428,35 @@ class EmotionApp(ctk.CTk):
             ],
         )
         if not path:
+            print("[ui] selección de audio cancelada", flush=True)
             return
+        print(f"[ui] audio seleccionado: {path}", flush=True)
         self._stop_playback(reset=True)
         self.audio_path = path
         self.file_label.configure(text=Path(path).name, text_color=TEXT)
         self.status_label.configure(text="Audio listo para procesar.")
         self._results = []
         self.emotion_now_label.configure(text="")
+        self.summary_label.configure(text="")
+        self._clear_call_score()
         if self.analyzer and not self._busy:
             self.process_btn.configure(state="normal")
+            print("[ui] Procesar activado", flush=True)
+        else:
+            print(
+                "[ui] Procesar no se activa "
+                f"(modelo={'sí' if self.analyzer else 'no'}, ocupado={self._busy})",
+                flush=True,
+            )
 
     def _start_process(self) -> None:
+        print("[ui] clic en Procesar", flush=True)
         if not self.audio_path or not self.analyzer or self._busy:
+            print(
+                "[ui] Procesar ignorado "
+                f"(audio={bool(self.audio_path)}, modelo={self.analyzer is not None}, ocupado={self._busy})",
+                flush=True,
+            )
             return
 
         try:
@@ -397,6 +464,7 @@ class EmotionApp(ctk.CTk):
             if chunk_seconds < 1.0 or chunk_seconds > 10.0:
                 raise ValueError
         except ValueError:
+            print("[ui] alerta: tamaño de fragmento inválido", flush=True)
             messagebox.showwarning(
                 "Fragmento inválido",
                 "Usa un tamaño de fragmento entre 1 y 10 segundos.",
@@ -412,6 +480,7 @@ class EmotionApp(ctk.CTk):
         self.status_label.configure(text="Analizando fragmentos…")
         self.summary_label.configure(text="")
         self.emotion_now_label.configure(text="")
+        self._clear_call_score()
 
         path = self.audio_path
         analyzer = self.analyzer
@@ -421,12 +490,15 @@ class EmotionApp(ctk.CTk):
 
         def work() -> None:
             try:
+                print(f"[ui] analizando {path} en fragmentos de {chunk_seconds}s", flush=True)
                 results = analyzer.analyze(
                     path,
                     chunk_seconds=chunk_seconds,
                     progress_callback=progress,
                 )
+                print(f"[ui] análisis listo: {len(results)} fragmentos", flush=True)
                 audio_data, sample_rate, duration = self._load_playback_audio(path)
+                print(f"[ui] audio de reproducción: {duration:.2f}s", flush=True)
                 self.after(
                     0,
                     lambda: self._on_results(
@@ -434,13 +506,15 @@ class EmotionApp(ctk.CTk):
                     ),
                 )
             except Exception as exc:  # noqa: BLE001
-                self.after(0, lambda: self._on_process_error(str(exc)))
+                message = str(exc)
+                print(f"[ui] fallo al procesar: {message}", flush=True)
+                self.after(0, lambda: self._on_process_error(message))
 
         threading.Thread(target=work, daemon=True).start()
 
     @staticmethod
     def _load_playback_audio(path: str) -> tuple[np.ndarray, int, float]:
-        waveform, sample_rate = torchaudio.load(path)
+        waveform, sample_rate = read_waveform(path)
         if waveform.shape[0] > 1:
             waveform = waveform.mean(dim=0, keepdim=True)
         data = waveform.squeeze(0).numpy().astype(np.float32)
@@ -455,10 +529,49 @@ class EmotionApp(ctk.CTk):
         self.status_label.configure(text=label)
 
     def _on_process_error(self, message: str) -> None:
+        print(f"[ui] alerta de error al procesar: {message}", flush=True)
         self._busy = False
         self.process_btn.configure(state="normal")
         self.status_label.configure(text="Error durante el análisis.")
         messagebox.showerror("Error", message)
+
+    def _clear_call_score(self) -> None:
+        self.final_score_label.configure(text="Sin análisis", text_color=MUTED)
+        for label in self._share_labels.values():
+            label.configure(text="—")
+
+    def _show_call_score(self, results: list) -> None:
+        keys = [key for _, key in EMOTION_LEGEND]
+        raw = [
+            sum(r.scores.get(key, 0.0) for r in results) / len(results) for key in keys
+        ]
+        percents = [int(value) for value in raw]
+        leftover = 100 - sum(percents)
+        order = sorted(
+            range(len(raw)),
+            key=lambda i: raw[i] - percents[i],
+            reverse=True,
+        )
+        for index in order:
+            if leftover <= 0:
+                break
+            percents[index] += 1
+            leftover -= 1
+
+        for key, percent in zip(keys, percents):
+            self._share_labels[key].configure(text=f"{percent}%")
+
+        valence = sum(r.valence_pct for r in results) / len(results)
+        if valence >= 60:
+            tone = "llamada más alegre"
+        elif valence <= 40:
+            tone = "llamada más triste"
+        else:
+            tone = "llamada mixta"
+        self.final_score_label.configure(
+            text=f"Valencia {valence:.0f}% · {tone}",
+            text_color=TEXT,
+        )
 
     def _on_results(
         self,
@@ -472,8 +585,10 @@ class EmotionApp(ctk.CTk):
         self.process_btn.configure(state="normal")
         self.progress.set(1)
 
+        print(f"[ui] resultados en pantalla: {len(results)} fragmentos", flush=True)
         if not results:
             self.status_label.configure(text="No se obtuvieron fragmentos válidos.")
+            self._clear_call_score()
             return
 
         self._results = results
@@ -504,17 +619,8 @@ class EmotionApp(ctk.CTk):
         self._set_playhead(0)
         self.canvas.draw_idle()
 
-        happy = sum(1 for r in results if r.dominant == "joy")
-        sad = sum(1 for r in results if r.dominant == "sadness")
-        angry = sum(1 for r in results if r.dominant == "anger")
-        avg = sum(vals) / len(vals)
-        tone = "más alegre" if avg >= 55 else "más triste" if avg <= 45 else "mixta"
-        self.summary_label.configure(
-            text=(
-                f"{len(results)} fragmentos · tono {tone} · "
-                f"alegre {happy} · triste {sad} · enojo {angry}"
-            )
-        )
+        self.summary_label.configure(text=f"{len(results)} fragmentos")
+        self._show_call_score(results)
         self.status_label.configure(
             text="Análisis listo (modelo ES). Reproduce y sigue la línea blanca."
         )
