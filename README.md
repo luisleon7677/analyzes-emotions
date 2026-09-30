@@ -64,13 +64,13 @@ sudo apt update
 sudo apt install -y python3-venv python3-pip git libsndfile1 nginx
 ```
 
-Clona o copia el proyecto en `/opt/emotion-analyzer`:
+Clona o copia el proyecto en `/var/www/emotion-analyzer`:
 
 ```bash
-sudo mkdir -p /opt/emotion-analyzer
-sudo chown ubuntu:ubuntu /opt/emotion-analyzer
-git clone <URL_DE_TU_REPO> /opt/emotion-analyzer
-cd /opt/emotion-analyzer
+sudo mkdir -p /var/www/emotion-analyzer
+sudo chown ubuntu:www-data /var/www/emotion-analyzer
+git clone <URL_DE_TU_REPO> /var/www/emotion-analyzer
+cd /var/www/emotion-analyzer
 ```
 
 Si subes los archivos por SCP en vez de Git, deja la carpeta con owner `ubuntu`.
@@ -78,7 +78,7 @@ Si subes los archivos por SCP en vez de Git, deja la carpeta con owner `ubuntu`.
 ### 2. Crear entorno e instalar dependencias
 
 ```bash
-cd /opt/emotion-analyzer
+cd /var/www/emotion-analyzer
 python3 -m venv venv
 source venv/bin/activate
 pip install --upgrade pip
@@ -99,9 +99,9 @@ La app arranca en modo offline para Hugging Face. Por eso el modelo debe quedar
 descargado antes de iniciar systemd.
 
 ```bash
-cd /opt/emotion-analyzer
+cd /var/www/emotion-analyzer
 source venv/bin/activate
-python scripts/download_model.py --model-dir /opt/emotion-analyzer/models/w2v-bert-emotion-es
+python scripts/download_model.py --model-dir /var/www/emotion-analyzer/models/w2v-bert-emotion-es
 ```
 
 ### 4. Crear variables de entorno
@@ -115,7 +115,7 @@ sudo nano /etc/emotion-analyzer/emotion-analyzer.env
 Valores recomendados:
 
 ```env
-MODEL_DIR=/opt/emotion-analyzer/models/w2v-bert-emotion-es
+MODEL_DIR=/var/www/emotion-analyzer/models/w2v-bert-emotion-es
 HOST=0.0.0.0
 PORT=8000
 MAX_QUEUE_SIZE=8
@@ -181,7 +181,7 @@ curl http://127.0.0.1:8000/health
 Actualizar codigo:
 
 ```bash
-cd /opt/emotion-analyzer
+cd /var/www/emotion-analyzer
 git pull
 source venv/bin/activate
 pip install -r requirements.txt
