@@ -64,7 +64,14 @@ def read_waveform(path: str) -> tuple[torch.Tensor, int]:
 
 
 def local_model_dir() -> Path:
-    """Carpeta del modelo ya descargado en la caché de Hugging Face."""
+    """Carpeta del modelo ya descargado. MODEL_DIR permite fijarla en el servidor."""
+    override = os.environ.get("MODEL_DIR", "").strip()
+    if override:
+        snapshot = Path(override)
+        if not (snapshot / "model.safetensors").is_file():
+            raise FileNotFoundError(f"Faltan los pesos del modelo en {snapshot}")
+        return snapshot
+
     cache = (
         Path.home()
         / ".cache"
@@ -199,3 +206,36 @@ class EmotionAnalyzer:
             )
 
         return results
+
+
+def resumen_llamada(results: list[ChunkResult]) -> dict[str, object]:
+    """Promedio de cada emoción en la llamada. Los porcentajes suman 100."""
+    keys = ("sadness", "fear", "disgust", "anger", "neutral", "joy")
+    raw = [
+        sum(item.scores.get(key, 0.0) for item in results) / len(results) for key in keys
+    ]
+    percents = [int(value) for value in raw]
+    leftover = 100 - sum(percents)
+    order = sorted(range(len(raw)), key=lambda i: raw[i] - percents[i], reverse=True)
+    while leftover > 0:
+        for index in order:
+            if leftover <= 0:
+                break
+            percents[index] += 1
+            leftover -= 1
+
+    emociones = {
+        EMOTION_ES[key].lower(): percent for key, percent in zip(keys, percents)
+    }
+    valencia = sum(item.valence_pct for item in results) / len(results)
+    if valencia >= 60:
+        tono = "llamada más alegre"
+    elif valencia <= 40:
+        tono = "llamada más triste"
+    else:
+        tono = "llamada mixta"
+    return {
+        "valencia": round(valencia),
+        "tono": tono,
+        "emociones": emociones,
+    }

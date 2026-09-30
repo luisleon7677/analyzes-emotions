@@ -1,197 +1,192 @@
-# Análisis emocional de audio
+# Analisis emocional de audio
 
-Aplicación de escritorio en Python que analiza audios en **español** por fragmentos temporales y muestra una gráfica de emociones a lo largo del tiempo (triste → alegre), con reproductor sincronizado.
+Servicio HTTP que analiza un audio en espanol por fragmentos y responde con el
+porcentaje de cada emocion.
 
-Modelo: [UMUTeam/w2v-bert-emotion-es](https://huggingface.co/UMUTeam/w2v-bert-emotion-es)
+Modelo local: [UMUTeam/w2v-bert-emotion-es](https://huggingface.co/UMUTeam/w2v-bert-emotion-es).
+Corre en CPU, aunque si la instancia tiene CUDA disponible tambien puede usar GPU.
 
----
+## API
 
-## Qué subir a producción (repositorio / servidor)
+`POST /analyze` con JSON:
 
-| Archivo / carpeta | ¿Subir? | Motivo |
-|-------------------|---------|--------|
-| `app.py` | Sí | Interfaz gráfica (punto de entrada) |
-| `analyzer.py` | Sí | Lógica de análisis por fragmentos |
-| `umu_model.py` | Sí | Arquitectura del modelo UMUTeam |
-| `requirements.txt` | Sí | Dependencias |
-| `README.md` | Sí | Documentación |
-| `.gitignore` | Sí | Evita subir archivos innecesarios |
-| `.env.example` | Sí | Plantilla de variables (sin secretos) |
-| `audio/.gitkeep` | Sí | Mantiene la carpeta `audio/` vacía |
-| `emotion.py` | Opcional | Script de prueba antiguo (no necesario para la app) |
+| Campo | Descripcion |
+|---|---|
+| `s3_url` | URL del audio en S3. Acepta `https://...` presignada o `s3://bucket/key` |
+| `fragmento_segundos` | Opcional. Entre 1 y 10. Por defecto 3 |
 
-## Qué NO subir
-
-| Elemento | Motivo |
-|----------|--------|
-| `venv/` o `.venv/` | Entorno virtual; se crea en cada máquina con `pip install` |
-| `__pycache__/` y `*.pyc` | Caché de Python |
-| `audio/*.wav`, `audio/*.ogg`, etc. | Audios de usuario o de prueba |
-| `.env` | Puede contener tokens o secretos |
-| Modelos descargados (`*.safetensors`, `models/`) | Se descargan solos desde Hugging Face al primer uso |
-| Caché de Hugging Face (`~/.cache/huggingface`) | Se regenera automáticamente |
-| Archivos de IDE (`.vscode/`, `.idea/`) | Configuración local del editor |
-
-> **Nota:** El modelo (~600 MB) **no va en el repositorio**. La primera vez que ejecutes la app se descargará desde Hugging Face.
-
----
-
-## Requisitos del sistema
-
-- **Python** 3.10 o superior (probado con 3.13)
-- **Windows**, **Linux** o **macOS**
-- **RAM:** mínimo 4 GB (recomendado 8 GB)
-- **Disco:** ~2 GB libres (dependencias + modelo)
-- **GPU:** opcional (acelera el análisis; funciona en CPU)
-- **Audio:** salida de sonido para el reproductor integrado
-
----
-
-## Instalación
-
-### 1. Clonar o copiar el proyecto
+La peticion espera el resultado. Si tarda mas que `JOB_WAIT_TIMEOUT`, responde
+`202` con `job_id` y el resultado se consulta con `GET /jobs/{job_id}`.
 
 ```bash
-git clone <url-del-repositorio>
-cd test-voice-model
+curl -X POST http://127.0.0.1:8000/analyze \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: cambia_este_token" \
+  -d '{"s3_url":"s3://mi-bucket/audio/llamada.wav","fragmento_segundos":3}'
 ```
 
-Si no usas Git, copia solo los archivos listados en la tabla “Qué subir”.
+`GET /health` devuelve estado del modelo, cola y trabajo activo.
 
-### 2. Crear entorno virtual
+## Desarrollo local
 
-**Windows (PowerShell):**
+```bash
+python -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+python scripts/download_model.py --model-dir models/w2v-bert-emotion-es
+MODEL_DIR="$PWD/models/w2v-bert-emotion-es" python api.py
+```
+
+En Windows PowerShell:
 
 ```powershell
 python -m venv venv
 .\venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+python scripts/download_model.py --model-dir models/w2v-bert-emotion-es
+$env:MODEL_DIR="$PWD\models\w2v-bert-emotion-es"
+python api.py
 ```
 
-**Linux / macOS:**
+Usa un solo proceso. La cola vive en memoria y no se comparte si lanzas varios
+workers de uvicorn.
+
+## Despliegue en EC2
+
+Recomendacion inicial: Ubuntu 22.04/24.04, 4 vCPU, 8 GB RAM como minimo
+comodo para CPU. Usa un EBS de 20 GB o mas, porque PyTorch y el modelo ocupan
+varios GB.
+
+### 1. Preparar la instancia
 
 ```bash
+sudo apt update
+sudo apt install -y python3-venv python3-pip git libsndfile1 nginx
+```
+
+Clona o copia el proyecto en `/opt/emotion-analyzer`:
+
+```bash
+sudo mkdir -p /opt/emotion-analyzer
+sudo chown ubuntu:ubuntu /opt/emotion-analyzer
+git clone <URL_DE_TU_REPO> /opt/emotion-analyzer
+cd /opt/emotion-analyzer
+```
+
+Si subes los archivos por SCP en vez de Git, deja la carpeta con owner `ubuntu`.
+
+### 2. Crear entorno e instalar dependencias
+
+```bash
+cd /opt/emotion-analyzer
 python3 -m venv venv
 source venv/bin/activate
-```
-
-### 3. Instalar dependencias
-
-```bash
 pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-En Windows, si `sounddevice` falla al reproducir audio, instala también [Visual C++ Redistributable](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist).
-
-### 4. (Opcional) Token de Hugging Face
-
-Para evitar límites de descarga en entornos con muchas instalaciones:
+Si la instancia solo usa CPU y quieres evitar paquetes CUDA innecesarios,
+puedes instalar PyTorch CPU antes del resto:
 
 ```bash
-copy .env.example .env   # Windows
-# cp .env.example .env   # Linux/macOS
+pip install --index-url https://download.pytorch.org/whl/cpu torch torchaudio
+pip install -r requirements.txt
 ```
 
-Edita `.env` y añade tu token:
+### 3. Descargar el modelo local
 
-```
-HF_TOKEN=hf_xxxxxxxxxxxxxxxx
-```
-
-O exporta la variable antes de ejecutar:
-
-```powershell
-$env:HF_TOKEN = "hf_xxxxxxxx"
-```
-
----
-
-## Uso
-
-Con el entorno virtual activado:
+La app arranca en modo offline para Hugging Face. Por eso el modelo debe quedar
+descargado antes de iniciar systemd.
 
 ```bash
-python app.py
+cd /opt/emotion-analyzer
+source venv/bin/activate
+python scripts/download_model.py --model-dir /opt/emotion-analyzer/models/w2v-bert-emotion-es
 ```
 
-### Flujo en la interfaz
+### 4. Crear variables de entorno
 
-1. Espera a que cargue el modelo (primera vez puede tardar varios minutos).
-2. Pulsa **Agregar audio** y selecciona un archivo (`.wav`, `.mp3`, `.ogg`, `.flac`, `.m4a`, `.aac`).
-3. Ajusta el **tamaño de fragmento** si quieres (por defecto 3 s).
-4. Pulsa **Procesar** para generar la gráfica.
-5. Usa el reproductor inferior; la **línea blanca** marca la posición actual en el tiempo.
-
----
-
-## Estructura del proyecto
-
-```
-test-voice-model/
-├── app.py              # Interfaz gráfica (ejecutar este archivo)
-├── analyzer.py         # Análisis por fragmentos
-├── umu_model.py        # Clase del modelo Wav2Vec2-BERT (UMUTeam)
-├── emotion.py          # Script de prueba legacy (opcional)
-├── requirements.txt
-├── README.md
-├── .gitignore
-├── .env.example
-└── audio/              # Carpeta local para audios (no se sube al repo)
-    └── .gitkeep
+```bash
+sudo mkdir -p /etc/emotion-analyzer
+sudo cp .env.example /etc/emotion-analyzer/emotion-analyzer.env
+sudo nano /etc/emotion-analyzer/emotion-analyzer.env
 ```
 
----
+Valores recomendados:
 
-## Despliegue en producción
+```env
+MODEL_DIR=/opt/emotion-analyzer/models/w2v-bert-emotion-es
+HOST=0.0.0.0
+PORT=8000
+MAX_QUEUE_SIZE=8
+JOB_WAIT_TIMEOUT=900
+JOB_TTL_SECONDS=3600
+MAX_UPLOAD_MB=50
+API_TOKEN=cambia_este_token_largo
+```
 
-Esta app es de **escritorio** (Tkinter + CustomTkinter). No es una API web.
+Para `s3://bucket/key`, asigna a la instancia un IAM Role con `s3:GetObject`
+sobre el bucket. Para URL presignada `https://...`, no hace falta credencial AWS.
 
-### Opciones recomendadas
+Si `API_TOKEN` queda vacio o comentado, la API no exige `X-API-Key`.
 
-1. **Repositorio Git**  
-   Sube solo el código fuente. Cada usuario o máquina instala con los pasos de arriba.
+### 5. Instalar systemd
 
-2. **Máquina / PC de trabajo**  
-   Clona el repo, crea `venv`, instala dependencias y ejecuta `python app.py`.
+```bash
+sudo cp deploy/emotion-analyzer.service /etc/systemd/system/emotion-analyzer.service
+sudo systemctl daemon-reload
+sudo systemctl enable emotion-analyzer
+sudo systemctl start emotion-analyzer
+```
 
-3. **Empaquetado como ejecutable (opcional)**  
-   Puedes usar PyInstaller más adelante; el ejecutable seguirá necesitando descargar el modelo la primera vez (o incluirlo manualmente, ~600 MB).
+Verifica logs y salud:
 
-### Checklist antes de publicar
+```bash
+sudo journalctl -u emotion-analyzer -f
+curl http://127.0.0.1:8000/health
+```
 
-- [ ] No hay archivos en `audio/` con datos reales de usuarios
-- [ ] No hay `.env` con tokens en el repositorio
-- [ ] No hay carpeta `venv/` en el commit
-- [ ] `requirements.txt` está actualizado
-- [ ] Probaste `python app.py` en una instalación limpia
+### 6. Publicar con Nginx opcional
 
----
+Si quieres exponer HTTP por puerto 80 y dejar la API escuchando solo detras de
+Nginx:
 
-## Emociones detectadas
+```bash
+sudo cp deploy/nginx-emotion-analyzer.conf /etc/nginx/sites-available/emotion-analyzer
+sudo ln -s /etc/nginx/sites-available/emotion-analyzer /etc/nginx/sites-enabled/emotion-analyzer
+sudo nginx -t
+sudo systemctl reload nginx
+```
 
-| Etiqueta del modelo | Español en la UI | Color en gráfica |
-|---------------------|------------------|------------------|
-| `sadness` | Triste | Azul |
-| `fear` | Miedo | Morado |
-| `disgust` | Disgusto | Turquesa |
-| `anger` | Enojo | Rojo |
-| `neutral` | Neutral | Amarillo |
-| `joy` | Alegre | Verde |
+En el Security Group de EC2 abre:
 
----
+- Puerto `80` si usas Nginx.
+- Puerto `8000` solo si decides acceder directo a Uvicorn.
+- Puerto `22` restringido a tu IP.
 
-## Solución de problemas
+En produccion publica preferentemente con HTTPS usando tu dominio y Certbot, o
+coloca un Load Balancer/CloudFront delante.
 
-| Problema | Posible solución |
-|----------|------------------|
-| Error al cargar el modelo | Comprueba conexión a internet y espacio en disco |
-| Descarga muy lenta | Configura `HF_TOKEN` en `.env` |
-| No suena el audio | Revisa dispositivo de salida y drivers; en Windows instala VC++ Redistributable |
-| `ModuleNotFoundError` | Activa el `venv` y ejecuta `pip install -r requirements.txt` |
-| La app va lenta | Usa fragmentos más grandes (p. ej. 5 s) o GPU si está disponible |
+## Operacion
 
----
+Comandos utiles:
 
-## Licencia del modelo
+```bash
+sudo systemctl status emotion-analyzer
+sudo systemctl restart emotion-analyzer
+sudo journalctl -u emotion-analyzer -n 200 --no-pager
+curl http://127.0.0.1:8000/health
+```
 
-El modelo [UMUTeam/w2v-bert-emotion-es](https://huggingface.co/UMUTeam/w2v-bert-emotion-es) tiene su propia licencia en Hugging Face. Revisa las condiciones de uso antes de un despliegue comercial.
+Actualizar codigo:
+
+```bash
+cd /opt/emotion-analyzer
+git pull
+source venv/bin/activate
+pip install -r requirements.txt
+sudo systemctl restart emotion-analyzer
+```
+
+Si cambias `MODEL_DIR` o parametros de cola, edita
+`/etc/emotion-analyzer/emotion-analyzer.env` y reinicia el servicio.

@@ -1,0 +1,21 @@
+[Unit]
+Description=Emotion Analyzer API
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/opt/emotion-analyzer
+EnvironmentFile=/etc/emotion-analyzer/emotion-analyzer.env
+ExecStart=/opt/emotion-analyzer/venv/bin/python api.py
+Restart=always
+RestartSec=5
+TimeoutStartSec=900
+
+# El modelo es pesado; evita que systemd mate el proceso ante picos moderados.
+OOMPolicy=continue
+
+[Install]
+WantedBy=multi-user.target
