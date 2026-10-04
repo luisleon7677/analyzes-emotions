@@ -15,8 +15,8 @@ Corre en CPU, aunque si la instancia tiene CUDA disponible tambien puede usar GP
 | `s3_url` | URL del audio en S3. Acepta `https://...` presignada o `s3://bucket/key` |
 | `fragmento_segundos` | Opcional. Entre 1 y 10. Por defecto 3 |
 
-Formatos admitidos por extension: `.aac`, `.flac`, `.m4a`, `.mp3`, `.oga`,
-`.ogg`, `.wav`.
+Formatos admitidos por extension: `.aac`, `.flac`, `.m4a`, `.mp3`, `.mpeg`,
+`.mpga`, `.oga`, `.ogg`, `.wav`.
 
 La peticion espera el resultado. Si tarda mas que `JOB_WAIT_TIMEOUT`, responde
 `202` con `job_id` y el resultado se consulta con `GET /jobs/{job_id}`.

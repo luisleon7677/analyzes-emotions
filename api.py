@@ -36,7 +36,17 @@ JOB_WAIT_TIMEOUT = float(os.environ.get("JOB_WAIT_TIMEOUT", "900"))
 JOB_TTL_SECONDS = float(os.environ.get("JOB_TTL_SECONDS", "3600"))
 MAX_UPLOAD_MB = int(os.environ.get("MAX_UPLOAD_MB", "50"))
 API_TOKEN = os.environ.get("API_TOKEN", "").strip()
-ALLOWED_SUFFIXES = {".wav", ".flac", ".ogg", ".oga", ".mp3", ".m4a", ".aac"}
+ALLOWED_SUFFIXES = {
+    ".wav",
+    ".flac",
+    ".ogg",
+    ".oga",
+    ".mp3",
+    ".mpeg",
+    ".mpga",
+    ".m4a",
+    ".aac",
+}
 
 _analyzer: EmotionAnalyzer | None = None
 _jobs: dict[str, "Job"] = {}
