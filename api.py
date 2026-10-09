@@ -34,7 +34,7 @@ PORT = int(os.environ.get("PORT", "8000"))
 MAX_QUEUE_SIZE = int(os.environ.get("MAX_QUEUE_SIZE", "8"))
 JOB_WAIT_TIMEOUT = float(os.environ.get("JOB_WAIT_TIMEOUT", "900"))
 JOB_TTL_SECONDS = float(os.environ.get("JOB_TTL_SECONDS", "3600"))
-MAX_UPLOAD_MB = int(os.environ.get("MAX_UPLOAD_MB", "50"))
+MAX_UPLOAD_MB = int(os.environ.get("MAX_UPLOAD_MB", "150"))
 API_TOKEN = os.environ.get("API_TOKEN", "").strip()
 ALLOWED_SUFFIXES = {
     ".wav",
