@@ -14,7 +14,7 @@ Restart=always
 RestartSec=5
 TimeoutStartSec=900
 
-# El modelo es pesado; evita que systemd mate el proceso ante picos moderados.
+# El modelo y los hilos de descarga/analisis viven dentro de esta API.
 OOMPolicy=continue
 
 [Install]

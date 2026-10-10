@@ -27,9 +27,8 @@ checkpoints/
 .cache/
 huggingface/
 
-# Audios de usuario / pruebas locales (no subir a producción)
-audio/*
-!audio/.gitkeep
+# Audios de usuario / pruebas locales
+audio/
 
 # IDE y sistema operativo
 .idea/
@@ -59,3 +58,7 @@ htmlcov/
 
 # Jupyter
 .ipynb_checkpoints/
+
+# Audios temporales y entorno de pruebas
+data/
+.venv-test/
