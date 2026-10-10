@@ -192,7 +192,7 @@ sudo nano /etc/emotion-analyzer/emotion-analyzer.env
 ```
 
 Valores recomendados:
-
+####
 ```env
 MODEL_DIR=/var/www/emotion-analyzer/models/w2v-bert-emotion-es
 HOST=0.0.0.0
